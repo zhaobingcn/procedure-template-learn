@@ -32,7 +32,7 @@ public class ChineseFullTextIndex {
     public Log log;
 
     @Procedure(value = "userdefined.index.ChineseFullIndexSearch", mode = Mode.WRITE)
-    @Description("执行lucene全文搜索，返回前 {limit} 个结果")
+    @Description("call userdefined.index.ChineseFullIndexSearch(indexName, query, limit) yield node, 执行lucene全文搜索，返回前 {limit} 个结果")
     public Stream<Node> search(@Name("indexName") String indexName,
                                @Name("query") String query,
                                @Name("limit") int limit

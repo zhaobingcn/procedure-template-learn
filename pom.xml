@@ -28,6 +28,13 @@
       <scope>provided</scope>
     </dependency>
 
+    <dependency>
+      <groupId>org.wltea.analyzer</groupId>
+      <artifactId>IKAnalyzer</artifactId>
+      <version>5.5.0</version>
+      <scope>provided</scope>
+    </dependency>
+
     <!-- Test Dependencies -->
     <dependency>
       <!-- This is used for a utility that lets us start Neo4j with

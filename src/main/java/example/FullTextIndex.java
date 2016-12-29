@@ -10,8 +10,10 @@ import org.neo4j.graphdb.Label;
 import org.neo4j.graphdb.Node;
 import org.neo4j.graphdb.index.Index;
 import org.neo4j.graphdb.index.IndexManager;
+import org.neo4j.index.lucene.QueryContext;
 import org.neo4j.logging.Log;
 import org.neo4j.procedure.*;
+import org.wltea.analyzer.lucene.IKAnalyzer;
 
 import static org.neo4j.helpers.collection.MapUtil.stringMap;
 
@@ -27,6 +29,9 @@ public class FullTextIndex
     // to create full-text indexes.
     private static final Map<String,String> FULL_TEXT =
             stringMap( IndexManager.PROVIDER, "lucene", "type", "fulltext" );
+
+    private static final Map<String, String> FULL_INDEX_CONFIG =
+            stringMap(IndexManager.PROVIDER, "lucene", "type", "fulltext", "analyzer", "org.wltea.analyzer.lucene.IKAnalyzer");
 
     // This field declares that we need a GraphDatabaseService
     // as context when any procedure in this class is invoked
@@ -94,6 +99,26 @@ public class FullTextIndex
                 .query( query )
                 .stream()
                 .map( SearchHit::new );
+    }
+
+    @Procedure(value = "userdefined.index.ChineseFullIndexSearch", mode = Mode.WRITE)
+    @Description("call userdefined.index.ChineseFullIndexSearch(indexName, query, limit) yield node, 执行lucene全文搜索，返回前 {limit} 个结果")
+    public Stream<ChineseHit> searchchinese(@Name("indexName") String indexName,
+                                            @Name("query") String query,
+                                            @Name("limit") long limit
+    ){
+        if( !db.index().existsForNodes( indexName ))
+        {
+            // Just to show how you'd do logging
+            log.debug( "Skipping index query since index does not exist: `%s`", indexName );
+            return Stream.empty();
+        }
+
+        return db.index()
+                .forNodes(indexName, FULL_INDEX_CONFIG)
+                .query(new QueryContext(query).sortByScore().top((int)limit))
+                .stream()
+                .map(ChineseHit::new);
     }
 
     /**
@@ -177,6 +202,13 @@ public class FullTextIndex
         {
             this.nodeId = node.getId();
         }
+    }
+
+    public static class ChineseHit
+    {
+        public Node node;
+
+        public ChineseHit(Node node) {this.node = node;}
     }
 
     private String indexName( String label )

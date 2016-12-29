@@ -72,19 +72,50 @@
           <target>1.8</target>
         </configuration>
       </plugin>
+      <!--<plugin>-->
+        <!--&lt;!&ndash; This generates a jar-file with our procedure code,-->
+             <!--plus any dependencies marked as `compile` scope.-->
+             <!--This should then be deployed in the `plugins` directory-->
+             <!--of each Neo4j instance in your deployment.-->
+             <!--After a restart, the procedure is available for calling. &ndash;&gt;-->
+        <!--<groupId>org.apache.maven.plugins</groupId>-->
+        <!--<artifactId>maven-shade-plugin</artifactId>-->
+        <!--<version>2.4.3</version>-->
+        <!--<executions>-->
+          <!--<execution>-->
+            <!--<phase>package</phase>-->
+            <!--<goals>-->
+              <!--<goal>shade</goal>-->
+            <!--</goals>-->
+            <!--<configuration>-->
+              <!--<transformers>-->
+                <!--<transformer implementation="org.apache.maven.plugins.shade.resource.PluginXmlResourceTransformer"/>-->
+              <!--</transformers>-->
+            <!--</configuration>-->
+          <!--</execution>-->
+        <!--</executions>-->
+      <!--</plugin>-->
       <plugin>
-        <!-- This generates a jar-file with our procedure code,
-             plus any dependencies marked as `compile` scope.
-             This should then be deployed in the `plugins` directory
-             of each Neo4j instance in your deployment.
-             After a restart, the procedure is available for calling. -->
-        <artifactId>maven-shade-plugin</artifactId>
-        <version>2.4.3</version>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-assembly-plugin</artifactId>
+        <version>2.3</version>
+        <configuration>
+          <appendAssemblyId>false</appendAssemblyId>
+          <descriptorRefs>
+            <descriptorRef>jar-with-dependencies</descriptorRef>
+          </descriptorRefs>
+          <!--<archive>-->
+            <!--<manifest>-->
+              <!--<mainClass>com.juvenxu.mvnbook.helloworld.HelloWorld</mainClass>-->
+            <!--</manifest>-->
+          <!--</archive>-->
+        </configuration>
         <executions>
           <execution>
+            <id>make-assembly</id>
             <phase>package</phase>
             <goals>
-              <goal>shade</goal>
+              <goal>assembly</goal>
             </goals>
           </execution>
         </executions>

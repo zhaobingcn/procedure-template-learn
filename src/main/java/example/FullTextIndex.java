@@ -5,9 +5,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Stream;
 
-import org.neo4j.graphdb.GraphDatabaseService;
-import org.neo4j.graphdb.Label;
-import org.neo4j.graphdb.Node;
+import org.neo4j.graphdb.*;
 import org.neo4j.graphdb.index.Index;
 import org.neo4j.graphdb.index.IndexManager;
 import org.neo4j.index.lucene.QueryContext;
@@ -144,11 +142,12 @@ public class FullTextIndex
     public void index( @Name("nodeId") long nodeId,
                        @Name("properties") List<String> propKeys )
     {
-        Node node = db.getNodeById( nodeId );
-
+        Node node = db.getNodeById(nodeId);
         // Load all properties for the node once and in bulk,
         // the resulting set will only contain those properties in `propKeys`
         // that the node actually contains.
+
+
         Set<Map.Entry<String,Object>> properties =
                 node.getProperties( propKeys.toArray( new String[0] ) ).entrySet();
 
@@ -169,6 +168,44 @@ public class FullTextIndex
         }
     }
 
+
+
+
+
+    @Procedure(value = "userdefined.index.addChineseFullTextIndex", mode=Mode.WRITE)
+    @Description("For the node with the given node-id, add properties for the provided keys to index per label")
+    public void addIndex( @Name("indexName") String indexName,
+                       @Name("properties") List<String> propKeys )
+    {
+        Label label = generateLabel(indexName);
+        ResourceIterator<Node> nodes = db.findNodes(label);
+        // Load all properties for the node once and in bulk,
+        // the resulting set will only contain those properties in `propKeys`
+        // that the node actually contains.
+
+
+        while(nodes.hasNext()){
+            Node node = nodes.next();
+            Set<Map.Entry<String,Object>> properties =
+                    node.getProperties( propKeys.toArray( new String[0] ) ).entrySet();
+
+            // Index every label (this is just as an example, we could filter which labels to index)
+
+            Index<Node> index = db.index().forNodes( indexName( label.name() ), FULL_INDEX_CONFIG);
+
+            // In case the node is indexed before, remove all occurrences of it so
+            // we don't get old or duplicated data
+            index.remove( node );
+
+            // And then index all the properties
+            for ( Map.Entry<String,Object> property : properties )
+            {
+                index.add( node, property.getKey(), property.getValue() );
+            }
+
+        }
+
+    }
 
     /**
      * This is the output record for our search procedure. All procedures
@@ -213,6 +250,12 @@ public class FullTextIndex
 
     private String indexName( String label )
     {
-        return "label-" + label;
+        return label.toLowerCase();
+    }
+
+    private Label generateLabel( String indexName){
+        char[] cs=indexName.toCharArray();
+        cs[0]-=32;
+        return Label.label(String.valueOf(cs));
     }
 }

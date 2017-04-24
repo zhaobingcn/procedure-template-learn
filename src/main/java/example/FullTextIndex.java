@@ -11,7 +11,6 @@ import org.neo4j.graphdb.index.IndexManager;
 import org.neo4j.index.lucene.QueryContext;
 import org.neo4j.logging.Log;
 import org.neo4j.procedure.*;
-import org.wltea.analyzer.lucene.IKAnalyzer;
 
 import static org.neo4j.helpers.collection.MapUtil.stringMap;
 
@@ -175,9 +174,10 @@ public class FullTextIndex
     @Procedure(value = "userdefined.index.addChineseFullTextIndex", mode=Mode.WRITE)
     @Description("For the node with the given node-id, add properties for the provided keys to index per label")
     public void addIndex( @Name("indexName") String indexName,
-                       @Name("properties") List<String> propKeys )
+                          @Name("labelName") String labelName,
+                          @Name("properties") List<String> propKeys )
     {
-        Label label = generateLabel(indexName);
+        Label label = Label.label(labelName);
         ResourceIterator<Node> nodes = db.findNodes(label);
         // Load all properties for the node once and in bulk,
         // the resulting set will only contain those properties in `propKeys`
@@ -191,7 +191,7 @@ public class FullTextIndex
 
             // Index every label (this is just as an example, we could filter which labels to index)
 
-            Index<Node> index = db.index().forNodes( indexName( label.name() ), FULL_INDEX_CONFIG);
+            Index<Node> index = db.index().forNodes( indexName, FULL_INDEX_CONFIG);
 
             // In case the node is indexed before, remove all occurrences of it so
             // we don't get old or duplicated data
@@ -250,12 +250,7 @@ public class FullTextIndex
 
     private String indexName( String label )
     {
-        return label.toLowerCase();
+        return label;
     }
 
-    private Label generateLabel( String indexName){
-        char[] cs=indexName.toCharArray();
-        cs[0]-=32;
-        return Label.label(String.valueOf(cs));
-    }
 }

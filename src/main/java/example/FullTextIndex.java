@@ -7,12 +7,10 @@ import org.neo4j.graphdb.*;
 import org.neo4j.graphdb.index.Index;
 import org.neo4j.graphdb.index.IndexHits;
 import org.neo4j.graphdb.index.IndexManager;
-import org.neo4j.graphdb.index.RelationshipIndex;
 import org.neo4j.index.lucene.QueryContext;
 import org.neo4j.logging.Log;
 import org.neo4j.procedure.*;
 
-import static org.neo4j.helpers.collection.MapUtil.copyAndPut;
 import static org.neo4j.helpers.collection.MapUtil.stringMap;
 
 

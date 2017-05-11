@@ -1,24 +1,21 @@
 package example;
 
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Stream;
 
 import org.neo4j.graphdb.*;
 import org.neo4j.graphdb.index.Index;
+import org.neo4j.graphdb.index.IndexHits;
 import org.neo4j.graphdb.index.IndexManager;
+import org.neo4j.graphdb.index.RelationshipIndex;
 import org.neo4j.index.lucene.QueryContext;
 import org.neo4j.logging.Log;
 import org.neo4j.procedure.*;
 
+import static org.neo4j.helpers.collection.MapUtil.copyAndPut;
 import static org.neo4j.helpers.collection.MapUtil.stringMap;
 
-/**
- * This is an example showing how you could expose Neo4j's full text indexes as
- * two procedures - one for updating indexes, and one for querying by label and
- * the lucene query language.
- */
+
 public class FullTextIndex
 {
     // Only static fields and @Context-annotated fields are allowed in
@@ -30,6 +27,8 @@ public class FullTextIndex
     private static final Map<String, String> FULL_INDEX_CONFIG =
             stringMap(IndexManager.PROVIDER, "lucene", "type", "fulltext", "analyzer", "org.wltea.analyzer.lucene.IKAnalyzer");
 
+    public static final String NODE = "NODE";
+    public static final String RELATIONSHIP = "RELATIONSHIP";
     // This field declares that we need a GraphDatabaseService
     // as context when any procedure in this class is invoked
     @Context
@@ -40,38 +39,7 @@ public class FullTextIndex
     @Context
     public Log log;
 
-    /**
-     * This declares the first of two procedures in this class - a
-     * procedure that performs queries in a legacy index.
-     *
-     * It returns a Stream of Records, where records are
-     * specified per procedure. This particular procedure returns
-     * a stream of {@link SearchHit} records.
-     *
-     * The arguments to this procedure are annotated with the
-     * {@link Name} annotation and define the position, name
-     * and type of arguments required to invoke this procedure.
-     * There is a limited set of types you can use for arguments,
-     * these are as follows:
-     *
-     * <ul>
-     *     <li>{@link String}</li>
-     *     <li>{@link Long} or {@code long}</li>
-     *     <li>{@link Double} or {@code double}</li>
-     *     <li>{@link Number}</li>
-     *     <li>{@link Boolean} or {@code boolean}</li>
-     *     <li>{@link java.util.Map} with key {@link String} and value {@link Object}</li>
-     *     <li>{@link java.util.List} of elements of any valid argument type, including {@link java.util.List}</li>
-     *     <li>{@link Object}, meaning any of the valid argument types</li>
-     * </ul>
-     *
-     * @param label the label name to query by
-     * @param query the lucene query, for instance `name:Brook*` to
-     *              search by property `name` and find any value starting
-     *              with `Brook`. Please refer to the Lucene Query Parser
-     *              documentation for full available syntax.
-     * @return the nodes found by the query
-     */
+
     // TODO: This is here as a workaround, because index().forNodes() is not read-only
     @Procedure(value = "example.search", mode = Mode.WRITE)
     @Description("Execute lucene query in the given index, return found nodes")
@@ -118,24 +86,7 @@ public class FullTextIndex
                 .map(ChineseHit::new);
     }
 
-    /**
-     * This is the second procedure defined in this class, it is used to update the
-     * index with nodes that should be queryable. You can send the same node multiple
-     * times, if it already exists in the index the index will be updated to match
-     * the current state of the node.
-     *
-     * This procedure works largely the same as {@link #search(String, String)},
-     * with two notable differences. One, it is annotated with {@link Mode}.WRITE,
-     * which is <i>required</i> if you want to perform updates to the graph in your
-     * procedure.
-     *
-     * Two, it returns {@code void} rather than a stream. This is simply a short-hand
-     * for saying our procedure always returns an empty stream of empty records.
-     *
-     * @param nodeId the id of the node to index
-     * @param propKeys a list of property keys to index, only the ones the node
-     *                 actually contains will be added
-     */
+
     @Procedure(value = "example.index", mode=Mode.WRITE)
     @Description("For the node with the given node-id, add properties for the provided keys to index per label")
     public void index( @Name("nodeId") long nodeId,
@@ -207,29 +158,154 @@ public class FullTextIndex
 
     }
 
-    /**
-     * This is the output record for our search procedure. All procedures
-     * that return results return them as a Stream of Records, where the
-     * records are defined like this one - customized to fit what the procedure
-     * is returning.
-     *
-     * These classes can only have public non-final fields, and the fields must
-     * be one of the following types:
-     *
-     * <ul>
-     *     <li>{@link String}</li>
-     *     <li>{@link Long} or {@code long}</li>
-     *     <li>{@link Double} or {@code double}</li>
-     *     <li>{@link Number}</li>
-     *     <li>{@link Boolean} or {@code boolean}</li>
-     *     <li>{@link org.neo4j.graphdb.Node}</li>
-     *     <li>{@link org.neo4j.graphdb.Relationship}</li>
-     *     <li>{@link org.neo4j.graphdb.Path}</li>
-     *     <li>{@link java.util.Map} with key {@link String} and value {@link Object}</li>
-     *     <li>{@link java.util.List} of elements of any valid field type, including {@link java.util.List}</li>
-     *     <li>{@link Object}, meaning any of the valid field types</li>
-     * </ul>
-     */
+    @Procedure(value = "chineseFulltextIndex.queryByValue", mode = Mode.WRITE)
+    public Stream<NodeAndScore> queryByValue(@Name("value")String value){
+
+        IndexManager mgr = db.index();
+        String[] indexes = mgr.nodeIndexNames();
+        Stream<NodeAndScore> resultStream = Stream.empty();
+        for(String index: indexes){
+            Iterable<String> propKeys = db.findNodes(Label.label(index)).next().getPropertyKeys();
+            StringBuilder query = new StringBuilder();
+            for(String propKey: propKeys){
+                query.append(propKey + ":" + value + " ");
+                query.append("OR ");
+            }
+            query.substring(0, query.length()-5);
+            Index<Node> fulltextIndex = mgr.forNodes(index);
+            IndexHits<Node> result = fulltextIndex.query(new QueryContext(query).sortByScore().top(6));
+            Stream<NodeAndScore> aResult = result
+                    .map(res -> new NodeAndScore(res, result.currentScore()))
+                    .stream();
+            resultStream = Stream.concat(resultStream, aResult);
+        }
+        return resultStream;
+    }
+//
+//    @Procedure(value = "chineseFulltextIndex.QueryByLabel", mode = Mode.WRITE)
+//    public Stream<WeightedNodeResult> queryByLabel(List<String> labels, String value){
+//        return null;
+//    }
+//
+    @Procedure(value = "chineseFulltextIndex.QueryByProperty", mode = Mode.WRITE)
+    public void queryByProperty(@Name("label") String label, @Name("propKeys") List<String> propKeys, @Name("value") String value){
+//        return null;
+    }
+
+    @Procedure(value = "chineseFulltextIndex.addNodeIndexByLabel", mode = Mode.WRITE)
+    public void addNodeIndexByLabel(@Name("label")String label){
+//        IndexManager mgr = db.index();
+//        if(mgr.existsForNodes(label)){
+//            mgr.forNodes(label).delete();
+//        }
+//        Index<Node> index= mgr.forNodes(label, FULL_INDEX_CONFIG);
+//        db.findNodes(Label.label(label)).stream().peek(
+//                node -> addNodeIndex(node, index)
+//        );
+        Label labelName = Label.label(label);
+        ResourceIterator<Node> nodes = db.findNodes(labelName);
+
+        while(nodes.hasNext()){
+            Node node = nodes.next();
+            Set<Map.Entry<String,Object>> properties =
+                    node.getAllProperties().entrySet();
+
+            Index<Node> index = db.index().forNodes( label, FULL_INDEX_CONFIG);
+
+            index.remove( node );
+
+            for ( Map.Entry<String,Object> property : properties )
+            {
+                index.add( node, property.getKey(), property.getValue() );
+            }
+
+        }
+    }
+
+    public void addNodeIndex(Node node, Index<Node> index){
+        Set<Map.Entry<String,Object>> properties =
+                node.getProperties().entrySet();
+
+        for ( Map.Entry<String,Object> property : properties )
+        {
+            index.add( node, property.getKey(), property.getValue() );
+        }
+    }
+
+    @Procedure(value = "chineseFulltextIndex.removeIndex", mode = Mode.WRITE)
+    public Stream<IndexInfo> removeIndex(){
+        IndexManager mgr = db.index();
+        String[] indexNames = mgr.nodeIndexNames();
+        List<IndexInfo> indexInfos = new ArrayList<>();
+        for(String indexname:indexNames){
+            Index<Node> index = mgr.forNodes(indexname);
+            indexInfos.add(new IndexInfo(NODE, indexname, mgr.getConfiguration(index)));
+            index.delete();
+        }
+        return indexInfos.stream();
+    }
+
+    @Procedure(value = "chineseFulltextIndex.removeIndexByLabel", mode = Mode.WRITE)
+    public Stream<IndexInfo> removeIndexByLabel(@Name("name") String name) {
+        IndexManager mgr = db.index();
+        List<IndexInfo> indexInfos = new ArrayList<>();
+        if (mgr.existsForNodes(name)) {
+            Index<Node> index = mgr.forNodes(name);
+            indexInfos.add(new IndexInfo(NODE, name, mgr.getConfiguration(index)));
+            index.delete();
+        }
+        return indexInfos.stream();
+    }
+
+    public static class IndexInfo {
+        public final String type;
+        public final String name;
+        public final Map<String,String> config;
+
+        public IndexInfo(String type, String name, Map<String, String> config) {
+            this.type = type;
+            this.name = name;
+            this.config = config;
+        }
+    }
+
+//    public static class WeightedNodeResult {
+//        public final Node node;
+//        public final double weight;
+//
+//        public WeightedNodeResult(Node node, double weight) {
+//            this.weight = weight;
+//            this.node = node;
+//        }
+//    }
+
+    public static class NodeAndScore{
+        private Node node;
+        private float score;
+
+        public Node getNode() {
+            return node;
+        }
+
+        public void setNode(Node node) {
+            this.node = node;
+        }
+
+        public float getScore() {
+            return score;
+        }
+
+        public void setScore(float score) {
+            this.score = score;
+        }
+
+        public NodeAndScore(Node node, float score){
+            this.node = node;
+            this.score = score;
+
+        }
+    }
+
     public static class SearchHit
     {
         // This records contain a single field named 'nodeId'
@@ -247,6 +323,8 @@ public class FullTextIndex
 
         public ChineseHit(Node node) {this.node = node;}
     }
+
+
 
     private String indexName( String label )
     {

@@ -163,33 +163,41 @@ public class FullTextIndex
 
         IndexManager mgr = db.index();
         String[] indexes = mgr.nodeIndexNames();
+        return queryByLabel(Arrays.asList(indexes), value);
+    }
+
+    @Procedure(value = "chineseFulltextIndex.QueryByLabel", mode = Mode.WRITE)
+    public Stream<NodeAndScore> queryByLabel(@Name("labels") List<String> labels, @Name("value") String value){
+        IndexManager mgr = db.index();
         Stream<NodeAndScore> resultStream = Stream.empty();
-        for(String index: indexes){
+        for(String index: labels){
             Iterable<String> propKeys = db.findNodes(Label.label(index)).next().getPropertyKeys();
-            StringBuilder query = new StringBuilder();
+            List<String> listPropKeys = new ArrayList<>();
             for(String propKey: propKeys){
-                query.append(propKey + ":" + value + " ");
-                query.append("OR ");
+                listPropKeys.add(propKey);
             }
-            query.substring(0, query.length()-5);
-            Index<Node> fulltextIndex = mgr.forNodes(index);
-            IndexHits<Node> result = fulltextIndex.query(new QueryContext(query).sortByScore().top(6));
-            Stream<NodeAndScore> aResult = result
-                    .map(res -> new NodeAndScore(res, result.currentScore()))
-                    .stream();
+            Stream<NodeAndScore> aResult = queryByProperty(index, listPropKeys, value);
             resultStream = Stream.concat(resultStream, aResult);
         }
         return resultStream;
     }
-//
-//    @Procedure(value = "chineseFulltextIndex.QueryByLabel", mode = Mode.WRITE)
-//    public Stream<WeightedNodeResult> queryByLabel(List<String> labels, String value){
-//        return null;
-//    }
-//
+
+
     @Procedure(value = "chineseFulltextIndex.QueryByProperty", mode = Mode.WRITE)
-    public void queryByProperty(@Name("label") String label, @Name("propKeys") List<String> propKeys, @Name("value") String value){
-//        return null;
+    public Stream<NodeAndScore> queryByProperty(@Name("label") String label, @Name("propKeys") List<String> propKeys, @Name("value") String value){
+        IndexManager mgr = db.index();
+        StringBuilder query = new StringBuilder();
+        for(String propKey: propKeys){
+            query.append(propKey + ":" + value + " ");
+            query.append("OR ");
+        }
+        query.substring(0, query.length()-5);
+        Index<Node> fulltextIndex = mgr.forNodes(label);
+        IndexHits<Node> result = fulltextIndex.query(new QueryContext(query).sortByScore().top(6));
+        Stream<NodeAndScore> aResult = result
+                .map(res -> new NodeAndScore(res, (double)result.currentScore()))
+                .stream();
+        return  aResult;
     }
 
     @Procedure(value = "chineseFulltextIndex.addNodeIndexByLabel", mode = Mode.WRITE)
@@ -269,37 +277,20 @@ public class FullTextIndex
         }
     }
 
-//    public static class WeightedNodeResult {
-//        public final Node node;
-//        public final double weight;
-//
-//        public WeightedNodeResult(Node node, double weight) {
-//            this.weight = weight;
-//            this.node = node;
-//        }
-//    }
 
     public static class NodeAndScore{
-        private Node node;
-        private float score;
+        public final Node node;
+        public final double score;
 
         public Node getNode() {
             return node;
         }
 
-        public void setNode(Node node) {
-            this.node = node;
-        }
-
-        public float getScore() {
+        public double getScore() {
             return score;
         }
 
-        public void setScore(float score) {
-            this.score = score;
-        }
-
-        public NodeAndScore(Node node, float score){
+        public NodeAndScore(Node node, double score){
             this.node = node;
             this.score = score;
 

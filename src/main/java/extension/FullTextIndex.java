@@ -1,4 +1,4 @@
-package example;
+package extension;
 
 import java.util.*;
 import java.util.stream.Stream;

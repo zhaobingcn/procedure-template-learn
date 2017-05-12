@@ -5,7 +5,7 @@
 
   <groupId>org.neo4j.userdefined</groupId>
   <artifactId>chinese-fulltext-index</artifactId>
-  <version>v_1.0</version>
+  <version>v_1.0.0</version>
 
   <packaging>jar</packaging>
   <name>Fulltest_search</name>

@@ -205,7 +205,7 @@ public class FullTextIndex
         }
     }
 
-    @Procedure(value = "chineseFulltextIndex.addNodesIndex")
+    @Procedure(value = "chineseFulltextIndex.addNodesIndex", mode = Mode.WRITE)
     public void addNodesIndex(){
         List<String> labels = new ArrayList<>();
         ResourceIterable getLabels = db.getAllLabels();

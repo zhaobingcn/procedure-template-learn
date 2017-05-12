@@ -164,7 +164,7 @@ public class FullTextIndex
         return queryByLabel(Arrays.asList(indexes), value);
     }
 
-    @Procedure(value = "chineseFulltextIndex.QueryByLabel", mode = Mode.WRITE)
+    @Procedure(value = "chineseFulltextIndex.queryByLabel", mode = Mode.WRITE)
     public Stream<NodeAndScore> queryByLabel(@Name("labels") List<String> labels, @Name("value") String value){
         IndexManager mgr = db.index();
         Stream<NodeAndScore> resultStream = Stream.empty();
@@ -177,11 +177,11 @@ public class FullTextIndex
             Stream<NodeAndScore> aResult = queryByProperty(index, listPropKeys, value);
             resultStream = Stream.concat(resultStream, aResult);
         }
-        return resultStream;
+        return resultStream.sorted(Comparator.comparing(NodeAndScore::getScore).reversed());
     }
 
 
-    @Procedure(value = "chineseFulltextIndex.QueryByProperty", mode = Mode.WRITE)
+    @Procedure(value = "chineseFulltextIndex.queryByProperty", mode = Mode.WRITE)
     public Stream<NodeAndScore> queryByProperty(@Name("label") String label, @Name("propKeys") List<String> propKeys, @Name("value") String value){
         IndexManager mgr = db.index();
         StringBuilder query = new StringBuilder();
@@ -189,17 +189,34 @@ public class FullTextIndex
             query.append(propKey + ":" + value + " ");
             query.append("OR ");
         }
-        query.substring(0, query.length()-5);
+        String queryc = query.substring(0, query.length()-4);
         Index<Node> fulltextIndex = mgr.forNodes(label);
-        IndexHits<Node> result = fulltextIndex.query(new QueryContext(query).sortByScore().top(6));
+        IndexHits<Node> result = fulltextIndex.query(new QueryContext(queryc));
         Stream<NodeAndScore> aResult = result
                 .map(res -> new NodeAndScore(res, (double)result.currentScore()))
                 .stream();
         return  aResult;
     }
 
+    @Procedure(value = "chineseFulltextIndex.addNodesIndexByLabels", mode = Mode.WRITE)
+    public void addNodesIndexByLabels(@Name("labels")List<String> labels){
+        for(String label:labels){
+            addNodesIndexByLabel(label);
+        }
+    }
+
+    @Procedure(value = "chineseFulltextIndex.addNodesIndex")
+    public void addNodesIndex(){
+        List<String> labels = new ArrayList<>();
+        ResourceIterable getLabels = db.getAllLabels();
+        for(Object label:getLabels){
+            labels.add(label.toString());
+        }
+        addNodesIndexByLabels(labels);
+    }
+
     @Procedure(value = "chineseFulltextIndex.addNodeIndexByLabel", mode = Mode.WRITE)
-    public void addNodeIndexByLabel(@Name("label")String label){
+    public void addNodesIndexByLabel(@Name("label")String label){
 //        IndexManager mgr = db.index();
 //        if(mgr.existsForNodes(label)){
 //            mgr.forNodes(label).delete();

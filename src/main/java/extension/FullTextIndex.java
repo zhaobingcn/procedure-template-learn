@@ -1,5 +1,7 @@
 package extension;
 
+import java.io.UnsupportedEncodingException;
+import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.stream.Stream;
 
@@ -20,7 +22,7 @@ public class FullTextIndex
     // Procedure classes. This static field is the configuration we use
     // to create full-text indexes.
     private static final Map<String,String> FULL_TEXT =
-            stringMap( IndexManager.PROVIDER, "lucene", "type", "fulltext" );
+            stringMap( IndexManager.PROVIDER, "lucene", "type", "fulltext", "analyzer", "org.apache.lucene.analysis.core.SimpleAnalyzer");
 
     private static final Map<String, String> FULL_INDEX_CONFIG =
             stringMap(IndexManager.PROVIDER, "lucene", "type", "fulltext", "analyzer", "org.wltea.analyzer.lucene.IKAnalyzer");
@@ -124,7 +126,7 @@ public class FullTextIndex
     @Description("For the node with the given node-id, add properties for the provided keys to index per label")
     public void addIndex( @Name("indexName") String indexName,
                           @Name("labelName") String labelName,
-                          @Name("properties") List<String> propKeys )
+                          @Name("properties") List<String> propKeys ) throws UnsupportedEncodingException
     {
         Label label = Label.label(labelName);
         ResourceIterator<Node> nodes = db.findNodes(label);
@@ -167,6 +169,7 @@ public class FullTextIndex
     @Procedure(value = "chineseFulltextIndex.queryByLabel", mode = Mode.WRITE)
     public Stream<NodeAndScore> queryByLabel(@Name("labels") List<String> labels, @Name("value") String value){
         IndexManager mgr = db.index();
+
         Stream<NodeAndScore> resultStream = Stream.empty();
         for(String index: labels){
             Iterable<String> propKeys = db.findNodes(Label.label(index)).next().getPropertyKeys();
@@ -215,7 +218,25 @@ public class FullTextIndex
         addNodesIndexByLabels(labels);
     }
 
-    @Procedure(value = "chineseFulltextIndex.addNodeIndexByLabel", mode = Mode.WRITE)
+    @Procedure(value = "chineseFulltextIndex.addNodesIndexByProperties", mode = Mode.WRITE)
+    public void addNodesIndexByProperties(@Name("properties")List<String> properties) throws UnsupportedEncodingException{
+        ResourceIterable getLabels = db.getAllLabels();
+        for(Object label:getLabels){
+            Iterable<String> propKeys = db.findNodes(Label.label(label.toString())).next().getPropertyKeys();
+            List<String> needPerpKeys = new ArrayList<>();
+            for(String propKey:propKeys){
+                if(properties.contains(propKey)){
+                    needPerpKeys.add(propKey);
+                }
+            }
+            if(!needPerpKeys.isEmpty()){
+                addIndex(label.toString(), label.toString(), needPerpKeys);
+            }
+        }
+    }
+
+
+    @Procedure(value = "chineseFulltextIndex.addNodesIndexByLabel", mode = Mode.WRITE)
     public void addNodesIndexByLabel(@Name("label")String label){
 //        IndexManager mgr = db.index();
 //        if(mgr.existsForNodes(label)){
@@ -239,7 +260,7 @@ public class FullTextIndex
 
             for ( Map.Entry<String,Object> property : properties )
             {
-                index.add( node, property.getKey(), property.getValue() );
+                index.add( node, property.getKey(), property.getValue());
             }
 
         }
@@ -279,6 +300,46 @@ public class FullTextIndex
         }
         return indexInfos.stream();
     }
+
+//    public static String filterOffUtf8Mb4(String text)
+//            throws UnsupportedEncodingException
+//    {
+//        byte[] bytes = text.getBytes("utf-8");
+//        ByteBuffer buffer = ByteBuffer.allocate(bytes.length);
+//        int i = 0;
+//        while (i < bytes.length)
+//        {
+//            short b = bytes[i];
+//            if (b > 0)
+//            {
+//                buffer.put(bytes[i++ ]);
+//                continue;
+//            }
+//            b += 256;
+//            if ((b ^ 0xC0) >> 4 == 0)
+//            {
+//                buffer.put(bytes, i, 2);
+//                i += 2;
+//            }
+//            else if ((b ^ 0xE0) >> 4 == 0)
+//            {
+//                buffer.put(bytes, i, 3);
+//                i += 3;
+//            }
+//            else if ((b ^ 0xF0) >> 4 == 0)
+//            {
+//                i += 4;
+//            }
+//            //添加处理如b的指为-48等情况出现的死循环
+//            else
+//            {
+//                buffer.put(bytes[i++ ]);
+//                continue;
+//            }
+//        }
+//        buffer.flip();
+//        return new String(buffer.array(), "utf-8");
+//    }
 
     public static class IndexInfo {
         public final String type;

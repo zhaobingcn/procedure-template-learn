@@ -41,3 +41,8 @@
 在所有标签的所有属性上查询
 
 使用：call chineseFulltextIndex.queryByValue（"value"）
+
+### chineseFulltextIndex.addNodesIndexByProperties(List<String> properties)
+在所有需要的属性上添加索引
+
+使用:call chineseFulltextIndex.addNodesIndexByProperties(["Property1", "Property2"...])

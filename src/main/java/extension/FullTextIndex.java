@@ -126,13 +126,10 @@ public class FullTextIndex
     @Description("For the node with the given node-id, add properties for the provided keys to index per label")
     public void addIndex( @Name("indexName") String indexName,
                           @Name("labelName") String labelName,
-                          @Name("properties") List<String> propKeys ) throws UnsupportedEncodingException
+                          @Name("properties") List<String> propKeys )
     {
         Label label = Label.label(labelName);
         ResourceIterator<Node> nodes = db.findNodes(label);
-        // Load all properties for the node once and in bulk,
-        // the resulting set will only contain those properties in `propKeys`
-        // that the node actually contains.
 
 
         while(nodes.hasNext()){
@@ -166,10 +163,20 @@ public class FullTextIndex
         return queryByLabel(Arrays.asList(indexes), value);
     }
 
-    @Procedure(value = "chineseFulltextIndex.queryByLabel", mode = Mode.WRITE)
-    public Stream<NodeAndScore> queryByLabel(@Name("labels") List<String> labels, @Name("value") String value){
-        IndexManager mgr = db.index();
+    @Procedure(value = "chineseFulltextIndex.queryByValueWithScoreAndLimit", mode = Mode.WRITE)
+    public Stream<NodeAndScore> queryByValue(@Name("value")String value,
+                                             @Name("score")Double score,
+                                             @Name("limit")Long limit){
 
+        IndexManager mgr = db.index();
+        String[] indexes = mgr.nodeIndexNames();
+        return queryByLabel(Arrays.asList(indexes), value, score, limit);
+    }
+
+    @Procedure(value = "chineseFulltextIndex.queryByLabel", mode = Mode.WRITE)
+    public Stream<NodeAndScore> queryByLabel(@Name("labels") List<String> labels,
+                                             @Name("value") String value
+                                             ){
         Stream<NodeAndScore> resultStream = Stream.empty();
         for(String index: labels){
             Iterable<String> propKeys = db.findNodes(Label.label(index)).next().getPropertyKeys();
@@ -183,9 +190,30 @@ public class FullTextIndex
         return resultStream.sorted(Comparator.comparing(NodeAndScore::getScore).reversed());
     }
 
+    @Procedure(value = "chineseFulltextIndex.queryByLabelWithScoreAndLimit", mode = Mode.WRITE)
+    public Stream<NodeAndScore> queryByLabel(@Name("labels") List<String> labels,
+                                             @Name("value") String value,
+                                             @Name("score") Double score,
+                                             @Name("limit") Long limit
+    ){
+        Stream<NodeAndScore> resultStream = Stream.empty();
+        for(String index: labels){
+            Iterable<String> propKeys = db.findNodes(Label.label(index)).next().getPropertyKeys();
+            List<String> listPropKeys = new ArrayList<>();
+            for(String propKey: propKeys){
+                listPropKeys.add(propKey);
+            }
+            Stream<NodeAndScore> aResult = queryByProperty(index, listPropKeys, value, score);
+            resultStream = Stream.concat(resultStream, aResult);
+        }
+        return resultStream.sorted(Comparator.comparing(NodeAndScore::getScore).reversed()).limit(limit);
+    }
+
 
     @Procedure(value = "chineseFulltextIndex.queryByProperty", mode = Mode.WRITE)
-    public Stream<NodeAndScore> queryByProperty(@Name("label") String label, @Name("propKeys") List<String> propKeys, @Name("value") String value){
+    public Stream<NodeAndScore> queryByProperty(@Name("label") String label,
+                                                @Name("propKeys") List<String> propKeys,
+                                                @Name("value") String value){
         IndexManager mgr = db.index();
         StringBuilder query = new StringBuilder();
         for(String propKey: propKeys){
@@ -200,6 +228,29 @@ public class FullTextIndex
                 .stream();
         return  aResult;
     }
+
+    @Procedure(value = "chineseFulltextIndex.queryByPropertyWithScore", mode = Mode.WRITE)
+    public Stream<NodeAndScore> queryByProperty(@Name("label") String label,
+                                                @Name("propKeys") List<String> propKeys,
+                                                @Name("value") String value,
+                                                @Name(value = "score", defaultValue = "0.0") Double score){
+        IndexManager mgr = db.index();
+        StringBuilder query = new StringBuilder();
+        for(String propKey: propKeys){
+            query.append(propKey + ":" + value + " ");
+            query.append("OR ");
+        }
+        String queryc = query.substring(0, query.length()-4);
+        Index<Node> fulltextIndex = mgr.forNodes(label);
+        IndexHits<Node> result = fulltextIndex.query(new QueryContext(queryc));
+        Stream<NodeAndScore> aResult = result
+                .stream()
+                .map(res -> new NodeAndScore(res, (double)result.currentScore()))
+                .filter(res -> res.getScore() > score);
+        return  aResult;
+    }
+
+
 
     @Procedure(value = "chineseFulltextIndex.addNodesIndexByLabels", mode = Mode.WRITE)
     public void addNodesIndexByLabels(@Name("labels")List<String> labels){
@@ -219,7 +270,7 @@ public class FullTextIndex
     }
 
     @Procedure(value = "chineseFulltextIndex.addNodesIndexByProperties", mode = Mode.WRITE)
-    public void addNodesIndexByProperties(@Name("properties")List<String> properties) throws UnsupportedEncodingException{
+    public void addNodesIndexByProperties(@Name("properties")List<String> properties){
         ResourceIterable getLabels = db.getAllLabels();
         for(Object label:getLabels){
             Iterable<String> propKeys = db.findNodes(Label.label(label.toString())).next().getPropertyKeys();

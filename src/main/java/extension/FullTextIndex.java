@@ -5,6 +5,11 @@ import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.stream.Stream;
 
+import org.apache.lucene.analysis.Analyzer;
+import org.apache.lucene.analysis.TokenStream;
+import org.apache.lucene.analysis.standard.StandardAnalyzer;
+import org.apache.lucene.analysis.tokenattributes.OffsetAttribute;
+import org.apache.lucene.analysis.tokenattributes.TermToBytesRefAttribute;
 import org.neo4j.graphdb.*;
 import org.neo4j.graphdb.index.Index;
 import org.neo4j.graphdb.index.IndexHits;
@@ -12,6 +17,7 @@ import org.neo4j.graphdb.index.IndexManager;
 import org.neo4j.index.lucene.QueryContext;
 import org.neo4j.logging.Log;
 import org.neo4j.procedure.*;
+import org.wltea.analyzer.lucene.IKAnalyzer;
 
 import static org.neo4j.helpers.collection.MapUtil.stringMap;
 
@@ -21,10 +27,10 @@ public class FullTextIndex
     // Only static fields and @Context-annotated fields are allowed in
     // Procedure classes. This static field is the configuration we use
     // to create full-text indexes.
-    private static final Map<String,String> FULL_TEXT =
-            stringMap( IndexManager.PROVIDER, "lucene", "type", "fulltext", "analyzer", "org.apache.lucene.analysis.core.SimpleAnalyzer");
+    private static final Map<String,String> STANDARD_ANALYZER =
+            stringMap( IndexManager.PROVIDER, "lucene", "type", "fulltext", "analyzer", "org.apache.lucene.analysis.standard.StandardAnalyzer");
 
-    private static final Map<String, String> FULL_INDEX_CONFIG =
+    private static final Map<String, String> CHINESE_ANALYZER =
             stringMap(IndexManager.PROVIDER, "lucene", "type", "fulltext", "analyzer", "org.wltea.analyzer.lucene.IKAnalyzer");
 
     public static final String NODE = "NODE";
@@ -80,7 +86,7 @@ public class FullTextIndex
         }
 
         return db.index()
-                .forNodes(indexName, FULL_INDEX_CONFIG)
+                .forNodes(indexName, CHINESE_ANALYZER)
                 .query(new QueryContext(query).sortByScore().top((int)limit))
                 .stream()
                 .map(ChineseHit::new);
@@ -104,7 +110,7 @@ public class FullTextIndex
         // Index every label (this is just as an example, we could filter which labels to index)
         for ( Label label : node.getLabels() )
         {
-            Index<Node> index = db.index().forNodes( indexName( label.name() ), FULL_TEXT );
+            Index<Node> index = db.index().forNodes( indexName( label.name() ), STANDARD_ANALYZER);
 
             // In case the node is indexed before, remove all occurrences of it so
             // we don't get old or duplicated data
@@ -139,7 +145,7 @@ public class FullTextIndex
 
             // Index every label (this is just as an example, we could filter which labels to index)
 
-            Index<Node> index = db.index().forNodes( indexName, FULL_INDEX_CONFIG);
+            Index<Node> index = db.index().forNodes( indexName, STANDARD_ANALYZER);
 
             // In case the node is indexed before, remove all occurrences of it so
             // we don't get old or duplicated data
@@ -215,9 +221,30 @@ public class FullTextIndex
                                                 @Name("propKeys") List<String> propKeys,
                                                 @Name("value") String value){
         IndexManager mgr = db.index();
+
+        /**
+         * 查询之前先进行分词
+         */
+        Analyzer analyzer = new StandardAnalyzer();
+        TokenStream tokenStream = analyzer.tokenStream("content", value);
+        tokenStream.addAttribute(TermToBytesRefAttribute.class);
+        OffsetAttribute offsetAttribute = tokenStream.addAttribute(OffsetAttribute.class);
+        StringBuffer offsetValue = new StringBuffer();
+        try {
+            tokenStream.reset();
+            while (tokenStream.incrementToken()){
+                offsetValue.append("+");
+                offsetValue.append(offsetAttribute.toString());
+                offsetValue.append(" ");
+            }
+            tokenStream.end();
+            tokenStream.close();
+        }catch (Exception e){
+            e.printStackTrace();
+        }
         StringBuilder query = new StringBuilder();
         for(String propKey: propKeys){
-            query.append(propKey + ":" + value + " ");
+            query.append(propKey + ":(" + offsetValue + ") ");
             query.append("OR ");
         }
         String queryc = query.substring(0, query.length()-4);
@@ -235,9 +262,30 @@ public class FullTextIndex
                                                 @Name("value") String value,
                                                 @Name(value = "score", defaultValue = "0.0") Double score){
         IndexManager mgr = db.index();
+        /**
+         * 查询之前先进行分词
+         */
+        Analyzer analyzer = new StandardAnalyzer();
+        TokenStream tokenStream = analyzer.tokenStream("content", value);
+        tokenStream.addAttribute(TermToBytesRefAttribute.class);
+        OffsetAttribute offsetAttribute = tokenStream.addAttribute(OffsetAttribute.class);
+        StringBuffer offsetValue = new StringBuffer();
+        try {
+            tokenStream.reset();
+            while (tokenStream.incrementToken()){
+                offsetValue.append("+");
+                offsetValue.append(offsetAttribute.toString());
+                offsetValue.append(" ");
+            }
+            tokenStream.end();
+            tokenStream.close();
+        }catch (Exception e){
+            e.printStackTrace();
+        }
+
         StringBuilder query = new StringBuilder();
         for(String propKey: propKeys){
-            query.append(propKey + ":" + value + " ");
+            query.append(propKey + ":(" + offsetValue + ") ");
             query.append("OR ");
         }
         String queryc = query.substring(0, query.length()-4);
@@ -305,7 +353,7 @@ public class FullTextIndex
             Set<Map.Entry<String,Object>> properties =
                     node.getAllProperties().entrySet();
 
-            Index<Node> index = db.index().forNodes( label, FULL_INDEX_CONFIG);
+            Index<Node> index = db.index().forNodes( label, STANDARD_ANALYZER);
 
             index.remove( node );
 

@@ -1,7 +1,5 @@
 package extension;
 
-import java.io.UnsupportedEncodingException;
-import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.stream.Stream;
 
@@ -10,6 +8,7 @@ import org.apache.lucene.analysis.TokenStream;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.analysis.tokenattributes.OffsetAttribute;
 import org.apache.lucene.analysis.tokenattributes.TermToBytesRefAttribute;
+import org.apache.lucene.queryparser.classic.QueryParser;
 import org.neo4j.graphdb.*;
 import org.neo4j.graphdb.index.Index;
 import org.neo4j.graphdb.index.IndexHits;
@@ -17,7 +16,6 @@ import org.neo4j.graphdb.index.IndexManager;
 import org.neo4j.index.lucene.QueryContext;
 import org.neo4j.logging.Log;
 import org.neo4j.procedure.*;
-import org.wltea.analyzer.lucene.IKAnalyzer;
 
 import static org.neo4j.helpers.collection.MapUtil.stringMap;
 
@@ -32,6 +30,8 @@ public class FullTextIndex
 
     private static final Map<String, String> CHINESE_ANALYZER =
             stringMap(IndexManager.PROVIDER, "lucene", "type", "fulltext", "analyzer", "org.wltea.analyzer.lucene.IKAnalyzer");
+
+    private static final Map<String, String>  EXACT = stringMap(IndexManager.PROVIDER, "lucene", "type", "exact");
 
     public static final String NODE = "NODE";
     public static final String RELATIONSHIP = "RELATIONSHIP";
@@ -221,39 +221,49 @@ public class FullTextIndex
                                                 @Name("propKeys") List<String> propKeys,
                                                 @Name("value") String value){
         IndexManager mgr = db.index();
-
+        boolean flag = value.startsWith("\"") ? true:false;
         /**
          * 查询之前先进行分词
          */
-        Analyzer analyzer = new StandardAnalyzer();
-        TokenStream tokenStream = analyzer.tokenStream("content", value);
-        tokenStream.addAttribute(TermToBytesRefAttribute.class);
-        OffsetAttribute offsetAttribute = tokenStream.addAttribute(OffsetAttribute.class);
-        StringBuffer offsetValue = new StringBuffer();
-        try {
-            tokenStream.reset();
-            while (tokenStream.incrementToken()){
-                offsetValue.append("+");
-                offsetValue.append(offsetAttribute.toString());
-                offsetValue.append(" ");
+        if(!flag){
+            Analyzer analyzer = new StandardAnalyzer();
+            TokenStream tokenStream = analyzer.tokenStream("content", value);
+            tokenStream.addAttribute(TermToBytesRefAttribute.class);
+            OffsetAttribute offsetAttribute = tokenStream.addAttribute(OffsetAttribute.class);
+            StringBuffer offsetValue = new StringBuffer();
+            try {
+                tokenStream.reset();
+                while (tokenStream.incrementToken()){
+                    offsetValue.append("+");
+                    offsetValue.append(offsetAttribute.toString());
+                    offsetValue.append(" ");
+                }
+                tokenStream.end();
+                tokenStream.close();
+            }catch (Exception e){
+                e.printStackTrace();
             }
-            tokenStream.end();
-            tokenStream.close();
-        }catch (Exception e){
-            e.printStackTrace();
+            value = offsetValue.toString();
         }
         StringBuilder query = new StringBuilder();
         for(String propKey: propKeys){
-            query.append(propKey + ":(" + offsetValue + ") ");
-            query.append("OR ");
+            query.append(propKey + ":(" + value + ") ");
         }
-        String queryc = query.substring(0, query.length()-4);
         Index<Node> fulltextIndex = mgr.forNodes(label);
-        IndexHits<Node> result = fulltextIndex.query(new QueryContext(queryc));
-        Stream<NodeAndScore> aResult = result
-                .map(res -> new NodeAndScore(res, (double)result.currentScore()))
-                .stream();
-        return  aResult;
+        IndexHits<Node> result = fulltextIndex.query(new QueryContext(query).defaultOperator(QueryParser.Operator.OR));
+        if(flag){
+            String queryString = value.replace("\"", "");
+            Stream<NodeAndScore> aResult = result
+                    .map(res -> new NodeAndScore(res, userDefinedScore(res, queryString)))
+                    .stream();
+            return  aResult;
+        }else{
+            Stream<NodeAndScore> aResult = result
+                    .map(res -> new NodeAndScore(res, result.currentScore()))
+                    .stream();
+            return  aResult;
+        }
+
     }
 
     @Procedure(value = "chineseFulltextIndex.queryByPropertyWithScore", mode = Mode.WRITE)
@@ -262,40 +272,50 @@ public class FullTextIndex
                                                 @Name("value") String value,
                                                 @Name(value = "score", defaultValue = "0.0") Double score){
         IndexManager mgr = db.index();
+        boolean flag = value.startsWith("\"") ? true:false;
         /**
          * 查询之前先进行分词
          */
-        Analyzer analyzer = new StandardAnalyzer();
-        TokenStream tokenStream = analyzer.tokenStream("content", value);
-        tokenStream.addAttribute(TermToBytesRefAttribute.class);
-        OffsetAttribute offsetAttribute = tokenStream.addAttribute(OffsetAttribute.class);
-        StringBuffer offsetValue = new StringBuffer();
-        try {
-            tokenStream.reset();
-            while (tokenStream.incrementToken()){
-                offsetValue.append("+");
-                offsetValue.append(offsetAttribute.toString());
-                offsetValue.append(" ");
+        if(!flag) {
+            Analyzer analyzer = new StandardAnalyzer();
+            TokenStream tokenStream = analyzer.tokenStream("content", value);
+            tokenStream.addAttribute(TermToBytesRefAttribute.class);
+            OffsetAttribute offsetAttribute = tokenStream.addAttribute(OffsetAttribute.class);
+            StringBuffer offsetValue = new StringBuffer();
+            try {
+                tokenStream.reset();
+                while (tokenStream.incrementToken()) {
+                    offsetValue.append("+");
+                    offsetValue.append(offsetAttribute.toString());
+                    offsetValue.append(" ");
+                }
+                tokenStream.end();
+                tokenStream.close();
+            } catch (Exception e) {
+                e.printStackTrace();
             }
-            tokenStream.end();
-            tokenStream.close();
-        }catch (Exception e){
-            e.printStackTrace();
+            value = offsetValue.toString();
         }
-
         StringBuilder query = new StringBuilder();
         for(String propKey: propKeys){
-            query.append(propKey + ":(" + offsetValue + ") ");
-            query.append("OR ");
+            query.append(propKey + ":(" + value + ") ");
         }
-        String queryc = query.substring(0, query.length()-4);
         Index<Node> fulltextIndex = mgr.forNodes(label);
-        IndexHits<Node> result = fulltextIndex.query(new QueryContext(queryc));
-        Stream<NodeAndScore> aResult = result
-                .stream()
-                .map(res -> new NodeAndScore(res, (double)result.currentScore()))
-                .filter(res -> res.getScore() > score);
-        return  aResult;
+        IndexHits<Node> result = fulltextIndex.query(new QueryContext(query).defaultOperator(QueryParser.Operator.OR));
+        if(flag){
+            String queryString = value.replace("\"", "");
+            Stream<NodeAndScore> aResult = result
+                    .stream()
+                    .map(res -> new NodeAndScore(res, userDefinedScore(res, queryString)))
+                    .filter(res -> res.getScore() > score);
+            return  aResult;
+        }else{
+            Stream<NodeAndScore> aResult = result
+                    .stream()
+                    .map(res -> new NodeAndScore(res, (double)result.currentScore()))
+                    .filter(res -> res.getScore() > score);
+            return  aResult;
+        }
     }
 
 
@@ -439,6 +459,21 @@ public class FullTextIndex
 //        buffer.flip();
 //        return new String(buffer.array(), "utf-8");
 //    }
+
+    public static double userDefinedScore(Node node, String queryString){
+        Map<String, Object> allproperties = node.getAllProperties();
+        int max = 0;
+        for(Map.Entry<String, Object> property:allproperties.entrySet()){
+            String value = property.getValue().toString();
+            if(value.contains(queryString)){
+                int length = value.length();
+                if(length > max){
+                    max = length;
+                }
+            }
+        }
+        return 1.0 / max;
+    }
 
     public static class IndexInfo {
         public final String type;
